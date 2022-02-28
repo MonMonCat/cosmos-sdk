@@ -221,6 +221,7 @@ var validProposalTypes = map[string]struct{}{
 func RegisterProposalType(ty string) {
 	if _, ok := validProposalTypes[ty]; ok {
 		fmt.Sprintf("already registered proposal type: %s", ty)
+		return
 	}
 
 	validProposalTypes[ty] = struct{}{}

@@ -170,6 +170,7 @@ func RegisterWithGRPCCode(codespace string, code uint32, grpcCode grpccodes.Code
 	// TODO - uniqueness is (codespace, code) combo
 	if e := getUsed(codespace, code); e != nil {
 		fmt.Sprintf("error with code %d is already registered: %q", code, e.desc)
+		return nil
 	}
 
 	err := &Error{codespace: codespace, code: code, desc: description, grpcCode: grpcCode}
