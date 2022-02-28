@@ -5,6 +5,8 @@ import (
 	"reflect"
 
 	"github.com/pkg/errors"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // RootCodespace is the codespace for all errors defined in this package
@@ -141,12 +143,12 @@ var (
 	// Examples: not DB domain error, file writing etc...
 	ErrIO = Register(RootCodespace, 39, "Internal IO error")
 
-	// ErrAppConfig defines an error occurred if min-gas-prices field in BaseConfig is empty.
-	ErrAppConfig = Register(RootCodespace, 40, "error in app.toml")
-
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info
 	ErrPanic = Register(UndefinedCodespace, 111222, "panic")
+
+	// ErrAppConfig defines an error occurred if min-gas-prices field in BaseConfig is empty.
+	ErrAppConfig = Register(RootCodespace, 40, "error in app.toml")
 )
 
 // Register returns an error instance that should be used as the base for
@@ -157,13 +159,20 @@ var (
 // twice. Attempt to reuse an error code results in panic.
 //
 // Use this function only during a program startup phase.
+// Use this function only during a program startup phase.
 func Register(codespace string, code uint32, description string) *Error {
+	return RegisterWithGRPCCode(codespace, code, grpccodes.Unknown, description)
+}
+
+// RegisterWithGRPCCode is a version of Register that associates a gRPC error
+// code with a registered error.
+func RegisterWithGRPCCode(codespace string, code uint32, grpcCode grpccodes.Code, description string) *Error {
 	// TODO - uniqueness is (codespace, code) combo
 	if e := getUsed(codespace, code); e != nil {
 		panic(fmt.Sprintf("error with code %d is already registered: %q", code, e.desc))
 	}
 
-	err := New(codespace, code, description)
+	err := &Error{codespace: codespace, code: code, desc: description, grpcCode: grpcCode}
 	setUsed(err)
 
 	return err
@@ -214,10 +223,11 @@ type Error struct {
 	codespace string
 	code      uint32
 	desc      string
+	grpcCode  grpccodes.Code
 }
 
 func New(codespace string, code uint32, desc string) *Error {
-	return &Error{codespace: codespace, code: code, desc: desc}
+	return Register(codespace, code, desc)
 }
 
 func (e Error) Error() string {
@@ -266,11 +276,15 @@ func (e *Error) Is(err error) bool {
 
 // Wrap extends this error with an additional information.
 // It's a handy function to call Wrap with sdk errors.
-func (e *Error) Wrap(desc string) error { return Wrap(e, desc) }
+func (e Error) Wrap(desc string) error { return Wrap(e, desc) }
+
+func (e *Error) GRPCStatus() *grpcstatus.Status {
+	return grpcstatus.Newf(e.grpcCode, "codespace %s code %d: %s", e.codespace, e.code, e.desc)
+}
 
 // Wrapf extends this error with an additional information.
 // It's a handy function to call Wrapf with sdk errors.
-func (e *Error) Wrapf(desc string, args ...interface{}) error { return Wrapf(e, desc, args...) }
+func (e Error) Wrapf(desc string, args ...interface{}) error { return Wrapf(e, desc, args...) }
 
 func isNilErr(err error) bool {
 	// Reflect usage is necessary to correctly compare with
